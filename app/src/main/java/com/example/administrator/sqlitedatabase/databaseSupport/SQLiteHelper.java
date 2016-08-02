@@ -87,7 +87,7 @@ public class SQLiteHelper <M> {
         if (!dir.exists()){
             dir.mkdir();
         }
-        if (!file.exists()){
+//        if (!file.exists()){
             FileOutputStream fos=new FileOutputStream(outfile);
             byte[] buffer=new byte[1024];
             int length;
@@ -96,7 +96,8 @@ public class SQLiteHelper <M> {
             }
             fos.close();
             inputStream.close();
-        }
+//        }
+        database.setVersion(mVersion);
         database=SQLiteDatabase.openOrCreateDatabase(outfile,null);
     }
 
@@ -105,7 +106,7 @@ public class SQLiteHelper <M> {
     }
 
     public void execSQL(String sql,String ...args){
-        database.execSQL(sql,args);
+        database.execSQL(sql, args);
     }
 
     public Cursor rawSQL(String sql){
@@ -116,10 +117,22 @@ public class SQLiteHelper <M> {
         return database.rawQuery(sql,args);
     }
 
+    private Field[] _Idfilter(Field[] fields){
+        int count=fields.length-1;
+        int i=0;
+        Field[] newFields=new Field[count];
+        for (Field field:fields){
+            if (!field.getName().toLowerCase().equals("_id")){
+                newFields[i++]=field;
+            }
+        }
+        return newFields;
+    }
+
     public boolean insert(M entity){
         String tableName=entity.getClass().getSimpleName().toLowerCase();
         ContentValues values=new ContentValues();
-        Field[] fields=entity.getClass().getDeclaredFields();
+        Field[] fields=_Idfilter(entity.getClass().getDeclaredFields());
         for (Field field:fields){
             field.setAccessible(true);
             String fieldName=field.getName().toLowerCase();
@@ -137,6 +150,9 @@ public class SQLiteHelper <M> {
                         values.put(fieldName,(Float)value);
                         break;
                     case "class java.lang.String":
+                        if (value==null){
+                            value="";
+                        }
                         values.put(fieldName,(String) value);
                         break;
                     case "boolean":
@@ -150,7 +166,12 @@ public class SQLiteHelper <M> {
                         values.put(fieldName,(Long) value);
                         break;
                     case "class java.util.Date":
-                        Date date= (Date) value;
+                        Date date=null;
+                        if (value!=null){
+                            date= (Date) value;
+                        }else {
+                            date=new Date();
+                        }
                         String dateStr=dateFormat.format(date);
                         values.put(fieldName,dateStr);
                         break;
@@ -159,22 +180,104 @@ public class SQLiteHelper <M> {
                 e.printStackTrace();
             }
         }
-        return insert(tableName,null,values);
+        return insert(tableName, null, values);
     }
 
     public boolean insert(String table, String nullColumnHack, ContentValues values){
-        long result=database.insert(table,nullColumnHack,values);
+        long result=database.insert(table, nullColumnHack, values);
         return (result==-1)?false:true;
     }
 
     public boolean update(String table,ContentValues values,String whereClause,String[] whereArgs){
-        int result=database.update(table,values,whereClause,whereArgs);
+        int result=database.update(table, values, whereClause, whereArgs);
         return (result==0)?false:true;
     }
 
+    public boolean update(M entity){
+        try {
+            Class<M> entityClass= (Class<M>) entity.getClass();
+            String tableName=entityClass.getSimpleName();
+            Field[] fields=entityClass.getDeclaredFields();
+            String where="_id= ? ";
+            String[] whereArgs=new String[1];
+//            String _id=BeanUtils.getProperty(entity,"_id");
+            ContentValues values=new ContentValues();
+            for (Field field:fields){
+                field.setAccessible(true);
+                String fieldName=field.getName().toLowerCase();
+                if (fieldName.equals("_id")){
+                    whereArgs[0]= ((Integer)field.get(entity)).toString();
+                }
+                String type=field.getGenericType().toString();
+                try {
+                    Object value=field.get(entity);
+                    switch (type){
+                        case "int":
+                            values.put(fieldName,(Integer) value);
+                            break;
+                        case "double":
+                            values.put(fieldName,(Double)value);
+                            break;
+                        case "float":
+                            values.put(fieldName,(Float)value);
+                            break;
+                        case "class java.lang.String":
+                            if (value==null){
+                                value="";
+                            }
+                            values.put(fieldName,(String) value);
+                            break;
+                        case "boolean":
+                            int flag=((Boolean)value==true)?1:0;
+                            values.put(fieldName,(Integer)flag);
+                            break;
+                        case "short":
+                            values.put(fieldName,(Short)value);
+                            break;
+                        case "long":
+                            values.put(fieldName,(Long) value);
+                            break;
+                        case "class java.util.Date":
+                            Date date=null;
+                            if (value!=null){
+                                date= (Date) value;
+                            }else {
+                                date=new Date();
+                            }
+                            String dateStr=dateFormat.format(date);
+                            values.put(fieldName,dateStr);
+                            break;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            return update(tableName, values, where, whereArgs);
+        }catch (Exception e){
+            Log.d(TAG,e.toString());
+        }
+        return false;
+    }
+
     public boolean delete(String table,String whereCause,String ...args){
-        int result=database.delete(table,whereCause,args);
+        int result=database.delete(table, whereCause, args);
         return (result==0)?false:true;
+    }
+
+    public boolean deleteById(Class clazz,String id){
+        String whereCause="_id=? ";
+        return delete(clazz,whereCause,id);
+    }
+
+    public boolean deleteById(Class clazz,int id){
+        String whereCause="_id=? ";
+        String _id=Integer.toString(id);
+        return delete(clazz,whereCause,_id);
+    }
+
+    public boolean delete(Class clazz,String whereCause,String...args){
+        String tableName=clazz.getSimpleName().toLowerCase();
+        return delete(tableName, whereCause, args);
     }
 
     public Cursor find(String sql){
