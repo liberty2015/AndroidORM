@@ -5,20 +5,12 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.util.Log;
-import android.widget.TextView;
-
-import com.example.administrator.sqlitedatabase.R;
-
-import org.apache.commons.beanutils.BeanUtils;
-import org.apache.commons.beanutils.ConvertUtils;
-import org.apache.commons.beanutils.Converter;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Type;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -30,7 +22,7 @@ import java.util.Map;
  * Created by Administrator on 2016/7/29.
  */
 
-public class SQLiteHelper <M> {
+public class SQLiteHelper <BaseBean> {
     private String TAG="SQLiteHelper";
     private static final String DATABASE_NAME="test.db";
     private static String DATABASE_PATH;
@@ -38,11 +30,13 @@ public class SQLiteHelper <M> {
     private Context mContext;
     private SQLiteDatabase database;
     private int mVersion;
+    private int mRawId;
     private SimpleDateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd");
 
-    public SQLiteHelper(Context context,int version){
+    public SQLiteHelper(Context context,int rawId,int version){
         mContext=context;
         mVersion=version;
+        mRawId=rawId;
         DATABASE_PATH=mContext.getFilesDir().getAbsolutePath()+ File.separator+"databases";
         outfile=DATABASE_PATH+File.separator+DATABASE_NAME;
         File file=new File(outfile);
@@ -62,41 +56,22 @@ public class SQLiteHelper <M> {
                 e.printStackTrace();
             }
         }
-        ConvertUtils.register(new Converter() {
-            @Override
-            public Object convert(Class aClass, Object o) {
-
-                if (o==null){
-                    return null;
-                }
-                Date date=null;
-                try {
-                    date=dateFormat.parse((String) o);
-                } catch (ParseException e) {
-                    e.printStackTrace();
-                }
-                return date;
-            }
-        },Date.class);
     }
 
     private void buildDatabase() throws Exception {
-        InputStream inputStream=mContext.getResources().openRawResource(R.raw.test);
-        File file=new File(outfile);
+        InputStream inputStream=mContext.getResources().openRawResource(mRawId);
         File dir=new File(DATABASE_PATH);
         if (!dir.exists()){
             dir.mkdir();
         }
-//        if (!file.exists()){
-            FileOutputStream fos=new FileOutputStream(outfile);
-            byte[] buffer=new byte[1024];
-            int length;
-            while ((length=inputStream.read(buffer))>0){
-                fos.write(buffer,0,length);
-            }
-            fos.close();
-            inputStream.close();
-//        }
+        FileOutputStream fos=new FileOutputStream(outfile);
+        byte[] buffer=new byte[1024];
+        int length;
+        while ((length=inputStream.read(buffer))>0){
+            fos.write(buffer,0,length);
+        }
+        fos.close();
+        inputStream.close();
         database.setVersion(mVersion);
         database=SQLiteDatabase.openOrCreateDatabase(outfile,null);
     }
@@ -129,7 +104,7 @@ public class SQLiteHelper <M> {
         return newFields;
     }
 
-    public boolean insert(M entity){
+    public boolean insert(BaseBean entity){
         String tableName=entity.getClass().getSimpleName().toLowerCase();
         ContentValues values=new ContentValues();
         Field[] fields=_Idfilter(entity.getClass().getDeclaredFields());
@@ -193,14 +168,13 @@ public class SQLiteHelper <M> {
         return (result==0)?false:true;
     }
 
-    public boolean update(M entity){
+    public boolean update(BaseBean entity){
         try {
-            Class<M> entityClass= (Class<M>) entity.getClass();
+            Class<BaseBean> entityClass= (Class<BaseBean>) entity.getClass();
             String tableName=entityClass.getSimpleName();
             Field[] fields=entityClass.getDeclaredFields();
             String where="_id= ? ";
             String[] whereArgs=new String[1];
-//            String _id=BeanUtils.getProperty(entity,"_id");
             ContentValues values=new ContentValues();
             for (Field field:fields){
                 field.setAccessible(true);
@@ -289,64 +263,79 @@ public class SQLiteHelper <M> {
         return database.rawQuery(sql,args);
     }
 
-    private M getEntity(Cursor cursor,Class<M> entityClass){
-        M entity=null;
-            try {
-                entity=entityClass.newInstance();
-                Field[] fields=entityClass.getDeclaredFields();
-                for (int i=0;i<fields.length;i++){
-                    fields[i].setAccessible(true);
-                    Type type=fields[i].getGenericType();
-                    String typeName=type.toString();
-                    String fieldName=fields[i].getName();
-                    switch (typeName){
-                        case "int":
-                            fields[i].set(entity,cursor.getInt(cursor.getColumnIndex(fieldName)));
+    private BaseBean getEntity(Cursor cursor,Class<BaseBean> entityClass){
+        BaseBean entity=null;
+        try {
+            entity=entityClass.newInstance();
+            Field[] fields=entityClass.getDeclaredFields();
+            for (int i=0;i<fields.length;i++){
+                fields[i].setAccessible(true);
+                Type type=fields[i].getGenericType();
+                String typeName=type.toString();
+                String fieldName=fields[i].getName();
+                switch (typeName){
+                    case "int":
+                        fields[i].set(entity,cursor.getInt(cursor.getColumnIndex(fieldName)));
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getInt(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "class java.lang.String":
-                            fields[i].set(entity,cursor.getString(cursor.getColumnIndex(fieldName)));
+                        break;
+                    case "class java.lang.String":
+                        fields[i].set(entity,cursor.getString(cursor.getColumnIndex(fieldName)));
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getString(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "double":
-                            fields[i].set(entity,cursor.getDouble(cursor.getColumnIndex(fieldName)));
+                        break;
+                    case "double":
+                        fields[i].set(entity,cursor.getDouble(cursor.getColumnIndex(fieldName)));
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getDouble(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "float":
-                            fields[i].set(entity,cursor.getFloat(cursor.getColumnIndex(fieldName)));
+                        break;
+                    case "float":
+                        fields[i].set(entity,cursor.getFloat(cursor.getColumnIndex(fieldName)));
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getDouble(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "boolean":
-                            int flag=cursor.getInt(cursor.getColumnIndex(fieldName));
-                            fields[i].set(entity,(flag!=0)?true:false);
+                        break;
+                    case "boolean":
+                        int flag=cursor.getInt(cursor.getColumnIndex(fieldName));
+                        fields[i].set(entity,(flag!=0)?true:false);
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getInt(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "long":
-                            fields[i].set(entity,cursor.getLong(cursor.getColumnIndex(fieldName)));
+                        break;
+                    case "long":
+                        fields[i].set(entity,cursor.getLong(cursor.getColumnIndex(fieldName)));
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getLong(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "short":
-                            fields[i].set(entity,cursor.getShort(cursor.getColumnIndex(fieldName)));
+                        break;
+                    case "short":
+                        fields[i].set(entity,cursor.getShort(cursor.getColumnIndex(fieldName)));
 //                            BeanUtils.setProperty(entity,fieldName,cursor.getShort(cursor.getColumnIndex(fieldName)));
-                            break;
-                        case "class java.util.Date":
-                            String dateTime=cursor.getString(cursor.getColumnIndex(fieldName));
-                            Date date=null;
-                            date=dateFormat.parse(dateTime);
-                            fields[i].set(entity,date);
+                        break;
+                    case "class java.util.Date":
+                        String dateTime=cursor.getString(cursor.getColumnIndex(fieldName));
+                        Date date=null;
+                        date=dateFormat.parse(dateTime);
+                        fields[i].set(entity,date);
 //                            BeanUtils.setProperty(entity,fieldName,date);
-                            break;
-                    }
+                        break;
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return entity;
     }
 
-    public M findOne(String sql,Class<M> entityClass){
+    public BaseBean findOne(String sql,Class<BaseBean> entityClass){
         Cursor cursor=find(sql,null);
         if (cursor!=null&&cursor.moveToFirst()) {
+            return getEntity(cursor,entityClass);
+        }
+        return null;
+    }
+
+    public BaseBean findOne(Class<BaseBean> entityClass,String whereCause,String... args){
+        String tableName=entityClass.getSimpleName();
+        StringBuffer sql=new StringBuffer();
+        sql.append("select * from ");
+        sql.append(tableName);
+        sql.append(" ");
+        sql.append(whereCause);
+        Log.d(TAG,"sql="+sql.toString());
+        Cursor cursor=find(sql.toString(),args);
+        if (cursor!=null&&cursor.moveToFirst()){
             return getEntity(cursor,entityClass);
         }
         return null;
@@ -381,17 +370,16 @@ public class SQLiteHelper <M> {
         return dataMap;
     }
 
-    public List<M> findList(String sql,Class<M> entityClass){
+    public List<BaseBean> findList(String sql,Class<BaseBean> entityClass){
         Cursor cursor=find(sql,null);
-        List<M> entityList=new ArrayList<M>();
+        List<BaseBean> entityList=new ArrayList<BaseBean>();
         if (cursor!=null&&cursor.moveToFirst()){
             int count=cursor.getCount();
             do{
-                M entity=getEntity(cursor,entityClass);
+                BaseBean entity=getEntity(cursor,entityClass);
                 if (entity!=null){
                     entityList.add(entity);
                 }
-//                cursor.moveToNext();
             }while (cursor.moveToNext());
         }
         return entityList;
